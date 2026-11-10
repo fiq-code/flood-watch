@@ -1,0 +1,34 @@
+name: JKR road closures
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jkr-roads
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Copy road closures from JKR eBencana
+        run: python scripts/jkr_scrape.py
+      - name: Save results
+        run: |
+          git config user.name "flood-watch-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "JKR road closures update"
+          git pull --rebase --quiet origin main
+          git push origin HEAD:main
