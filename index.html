@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flood Watch – clinical waste collection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..110,400..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: light;
+  --ink:#13324A; --paper:#EEF2F3; --surface:#FFFFFF; --line:#C9D4D9; --muted:#56697A;
+  --warn:#A86E0B; --pre:#C2541A; --flood:#B42318; --rec:#2C7A57; --none:#7A8B96;
+  --warn-bg:#FBF1DC; --pre-bg:#FBE7DB; --flood-bg:#FBE0DD; --rec-bg:#DDF0E6;
+  --focus:#1F6FB2;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --ink:#E3ECF0; --paper:#0F1E28; --surface:#162A37; --line:#2A4352; --muted:#9AB0BC;
+    --warn:#E0A53A; --pre:#EE8048; --flood:#F06A5E; --rec:#4FB386; --none:#8DA0AB;
+    --warn-bg:#3A2E14; --pre-bg:#3D2516; --flood-bg:#3F1E1C; --rec-bg:#173A2B;
+    --focus:#6FB3EE;
+  }
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:16px;line-height:1.5}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+a{color:var(--focus)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 18px}
+
+header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;padding:22px 0 14px}
+.brand h1{margin:0;font-size:2rem;font-weight:800;font-stretch:80%;letter-spacing:-.01em;line-height:1.05}
+.brand p{margin:4px 0 0;color:var(--muted);max-width:60ch}
+.status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{font-size:.85rem;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.pill.live{border-color:var(--rec);color:var(--rec)}
+.pill.demo{border-color:var(--pre);color:var(--pre)}
+#updated{font-size:.85rem;color:var(--muted)}
+.btn{border:1px solid var(--ink);background:var(--ink);color:var(--paper);padding:7px 14px;border-radius:6px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn:disabled{opacity:.5;cursor:wait}
+
+.banner{border-left:4px solid var(--pre);background:var(--pre-bg);padding:10px 14px;margin:0 0 14px;border-radius:4px;font-size:.92rem}
+
+nav.tabs{display:flex;gap:2px;border-bottom:2px solid var(--line);overflow-x:auto}
+nav.tabs button{background:none;border:0;padding:10px 16px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab{padding:20px 0 40px}
+.tab[hidden]{display:none}
+
+/* Phase board: the staff gauge */
+.board{display:grid;grid-template-columns:230px 1fr;gap:24px;align-items:start}
+.gauge{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);display:flex;flex-direction:column;
+  border-left:6px solid var(--ink);padding-left:0;background:
+  repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px 12px) left/14px 100% no-repeat}
+.seg{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 10px;text-align:left;
+  border:0;border-bottom:1px solid var(--line);background:transparent;padding:14px 12px 14px 26px;cursor:pointer;position:relative}
+.seg::before{content:"";position:absolute;left:0;top:0;bottom:0;width:14px;background:var(--c)}
+.seg .nm{font-weight:700;font-size:1.05rem}
+.seg .bm{grid-column:1;font-size:.82rem;color:var(--muted)}
+.seg .ct{grid-row:1/3;grid-column:2;font-size:2.2rem;font-weight:800;font-stretch:75%;line-height:1;color:var(--c)}
+.seg .st{grid-column:1/3;font-size:.8rem;color:var(--muted)}
+.seg[aria-pressed="true"]{background:var(--surface)}
+.seg[aria-pressed="true"]::before{width:20px}
+.seg.gap{margin-top:18px;border-top:1px solid var(--line)}
+.phase-warning{--c:var(--warn);--cb:var(--warn-bg)}
+.phase-preflood{--c:var(--pre);--cb:var(--pre-bg)}
+.phase-flood{--c:var(--flood);--cb:var(--flood-bg)}
+.phase-recovery{--c:var(--rec);--cb:var(--rec-bg)}
+
+.phase-head h2{margin:0;font-size:1.6rem;font-weight:800;font-stretch:85%;color:var(--c)}
+.phase-head p{margin:4px 0 16px;color:var(--muted);max-width:70ch}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);border-radius:0 0 6px 6px;margin-bottom:22px}
+.actions > div{padding:12px 14px}
+.actions > div + div{border-left:1px solid var(--line)}
+.actions h3{margin:0 0 6px;font-size:.95rem}
+.actions ul{margin:0;padding-left:18px;font-size:.9rem}
+.actions li{margin:3px 0}
+
+.feed{display:flex;flex-direction:column;gap:12px}
+.item{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:6px;padding:12px 16px}
+.item h4{margin:0;font-size:1.05rem}
+.item .meta{font-size:.85rem;color:var(--muted);margin:2px 0 6px}
+.item p{margin:6px 0;font-size:.92rem;max-width:75ch}
+.item details{font-size:.9rem}
+.item summary{cursor:pointer;font-weight:600}
+.lvl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.88rem;margin:6px 0}
+.lvl b{font-stretch:85%}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{font-size:.8rem;padding:2px 8px;border-radius:4px;background:var(--cb);border:1px solid var(--line)}
+.chip.mine{border-color:var(--c);font-weight:700}
+.empty{padding:28px 18px;border:1px dashed var(--line);border-radius:6px;color:var(--muted);text-align:center}
+
+/* Facilities */
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.filters input[type=search],.filters select,.form input,.form select{padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.filters input[type=search]{flex:1 1 220px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:700;background:var(--paper);position:sticky;top:0}
+.tag{display:inline-block;font-size:.78rem;font-weight:700;padding:1px 8px;border-radius:4px;color:var(--c);background:var(--cb)}
+.tag.none{--c:var(--none);--cb:transparent;border:1px solid var(--line)}
+.star{background:none;border:0;font-size:1.2rem;cursor:pointer;color:var(--muted);line-height:1}
+.star[aria-pressed="true"]{color:var(--warn)}
+.note{font-size:.85rem;color:var(--muted)}
+
+/* Roads & settings */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600}
+.form .full{grid-column:1/-1}
+.statechecks{display:flex;flex-wrap:wrap;gap:6px 16px;font-weight:400}
+.statechecks label{flex-direction:row;align-items:center;gap:6px;font-weight:400;font-size:.92rem}
+.src{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 16px}
+.src dt{font-weight:700;margin-top:12px}
+.src dd{margin:2px 0 10px;font-size:.92rem;color:var(--muted)}
+footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;color:var(--muted)}
+
+@media (max-width:820px){
+  .board{grid-template-columns:1fr}
+  .gauge{position:static;flex-direction:row;overflow-x:auto;border-left:0;border-top:6px solid var(--ink);background:none}
+  .seg{flex:1 0 140px;border-bottom:0;border-right:1px solid var(--line);padding:12px 10px 10px}
+  .seg::before{left:0;right:0;top:0;bottom:auto;width:auto;height:8px}
+  .seg[aria-pressed="true"]::before{width:auto;height:12px}
+  .seg.gap{margin-top:0;border-top:0;margin-left:10px;border-left:1px solid var(--line)}
+  .actions{grid-template-columns:1fr}
+  .actions > div + div{border-left:0;border-top:1px solid var(--line)}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="brand">
+    <h1>Flood Watch</h1>
+    <p>Early warning for daily clinical waste collection – hospitals, clinics, dialysis centres and the route to Kualiti Alam.</p>
+  </div>
+  <div class="status">
+    <span id="dataPill" class="pill">Loading…</span>
+    <span id="updated"></span>
+    <button id="refreshBtn" class="btn">Refresh now</button>
+  </div>
+</header>
+<div id="banner" class="banner" hidden></div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="notify" aria-selected="true">Flood notification</button>
+  <button role="tab" data-tab="facilities" aria-selected="false">Facilities</button>
+  <button role="tab" data-tab="roads" aria-selected="false">Road closures</button>
+  <button role="tab" data-tab="settings" aria-selected="false">Settings &amp; sources</button>
+</nav>
+
+<main>
+  <section id="tab-notify" class="tab">
+    <div class="board">
+      <div class="gauge" id="gauge" aria-label="Flood phases"></div>
+      <div id="phasePanel">
+        <div class="phase-head" id="phaseHead"></div>
+        <div class="actions" id="actions"></div>
+        <div class="feed" id="feed"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-facilities" class="tab" hidden>
+    <div class="filters">
+      <input type="search" id="facSearch" placeholder="Search facility name" aria-label="Search facility name">
+      <select id="facKind" aria-label="Facility type">
+        <option value="">All types</option><option>Hospital</option><option>Dialysis</option><option>Clinic</option><option>Dental</option><option>Destination</option>
+      </select>
+      <select id="facPhase" aria-label="Phase">
+        <option value="">All phases</option><option value="flood">Flood</option><option value="preflood">Pre-flood</option><option value="warning">Warning</option><option value="recovery">Recovery</option><option value="none">Normal</option>
+      </select>
+      <label><input type="checkbox" id="facMine"> My sites only</label>
+    </div>
+    <p class="note" id="facCount"></p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>My site</th><th>Facility</th><th>Type</th><th>State</th><th>Phase</th><th>Nearest river station</th></tr></thead>
+      <tbody id="facBody"></tbody>
+    </table></div>
+    <p class="note">Tap ☆ to mark a facility as your site. Your selection stays in this browser only and is never uploaded.</p>
+  </section>
+
+  <section id="tab-roads" class="tab" hidden>
+    <p class="note">JKR doesn’t publish road closures as a data feed yet, so log them here from <a href="https://bencanaalam.jkr.gov.my" target="_blank" rel="noopener">JKR eBencana</a>, LLM, police or driver reports. Closed roads appear under Flood; reopened roads under Recovery.</p>
+    <div class="form">
+      <label>Road / route<input id="rdName" placeholder="e.g. FT001 Jalan Seremban–Tampin"></label>
+      <label>State<select id="rdState"></select></label>
+      <label>District / location<input id="rdDistrict" placeholder="e.g. Rembau, KM 12"></label>
+      <label>Status<select id="rdStatus">
+        <option value="closed_all">Closed to all vehicles</option>
+        <option value="closed_light">Closed to light vehicles (heavy can pass)</option>
+        <option value="caution">Open with caution</option>
+        <option value="reopened">Reopened</option>
+      </select></label>
+      <label>Source<select id="rdSource"><option>JKR eBencana</option><option>LLM / highway operator</option><option>Police</option><option>Driver report</option><option>Waze / Google Maps</option></select></label>
+      <label class="full">Note<input id="rdNote" placeholder="Water depth, alternative route, contact…"></label>
+      <div class="full"><button class="btn" id="rdAdd">Add road update</button></div>
+    </div>
+    <div class="feed" id="rdList"></div>
+  </section>
+
+  <section id="tab-settings" class="tab" hidden>
+    <div class="form">
+      <div class="full"><strong>States to monitor</strong><div class="statechecks" id="stateChecks"></div></div>
+      <label>Radius around each river station (km)<input type="number" id="setRadius" min="1" max="50" step="1"></label>
+      <label>Kualiti Alam latitude<input type="number" id="setKaLat" step="0.0001"></label>
+      <label>Kualiti Alam longitude<input type="number" id="setKaLon" step="0.0001"></label>
+      <p class="note full">The Kualiti Alam pin is approximate. Drop a pin on the exact gate in Google Maps and copy the coordinates here.</p>
+      <div class="full" style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" id="setSave">Save and refresh</button>
+        <button class="btn ghost" id="setFac">Reload facilities from OpenStreetMap</button>
+        <button class="btn ghost" id="setClear">Clear stored data</button>
+      </div>
+    </div>
+    <dl class="src">
+      <dt>Warning (Amaran)</dt><dd>MET Malaysia weather warnings (continuous rain, thunderstorms) via data.gov.my. Flooding possible in 1–3 days.</dd>
+      <dt>Pre-flood (Pra-banjir)</dt><dd>A JPS river station within the set radius of a facility is at alert or warning level. Flooding may start within hours.</dd>
+      <dt>Flood (Banjir)</dt><dd>A JPS river station within the radius is at danger level, or a logged road is closed.</dd>
+      <dt>Recovery (Pemulihan)</dt><dd>A station that reached warning or danger level in the last 72 hours is dropping, or a logged road has reopened.</dd>
+      <dt>Data sources</dt>
+      <dd>Weather and river levels: <a href="https://developer.data.gov.my" target="_blank" rel="noopener">data.gov.my Open API</a> (MET Malaysia, JPS). Facilities: <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>. Manual checks: <a href="https://publicinfobanjir.water.gov.my" target="_blank" rel="noopener">Public InfoBanjir</a>, <a href="https://bencanaalam.jkr.gov.my" target="_blank" rel="noopener">JKR eBencana</a>, <a href="https://www.llm.gov.my/awam/cctv" target="_blank" rel="noopener">LLM highway CCTV</a>, <a href="https://portalbencana.nadma.gov.my" target="_blank" rel="noopener">NADMA Portal Bencana</a>.</dd>
+    </dl>
+  </section>
+</main>
+
+<footer>Facility data © OpenStreetMap contributors (ODbL). Weather and river data from MET Malaysia and JPS via data.gov.my. Decision support only – confirm road conditions before every dispatch.</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------- Reference data ---------- */
+const STATES = [
+  {code:"MY-01",name:"Johor",alias:["JOHOR"]},
+  {code:"MY-02",name:"Kedah",alias:["KEDAH"]},
+  {code:"MY-03",name:"Kelantan",alias:["KELANTAN"]},
+  {code:"MY-04",name:"Melaka",alias:["MELAKA","MALACCA"]},
+  {code:"MY-05",name:"Negeri Sembilan",alias:["NEGERI SEMBILAN","N. SEMBILAN","N.SEMBILAN"]},
+  {code:"MY-06",name:"Pahang",alias:["PAHANG"]},
+  {code:"MY-07",name:"Pulau Pinang",alias:["PULAU PINANG","PENANG","P. PINANG"]},
+  {code:"MY-08",name:"Perak",alias:["PERAK"]},
+  {code:"MY-09",name:"Perlis",alias:["PERLIS"]},
+  {code:"MY-10",name:"Selangor",alias:["SELANGOR"]},
+  {code:"MY-11",name:"Terengganu",alias:["TERENGGANU"]},
+  {code:"MY-12",name:"Sabah",alias:["SABAH"]},
+  {code:"MY-13",name:"Sarawak",alias:["SARAWAK"]},
+  {code:"MY-14",name:"Kuala Lumpur",alias:["KUALA LUMPUR"]},
+  {code:"MY-15",name:"Labuan",alias:["LABUAN"]},
+  {code:"MY-16",name:"Putrajaya",alias:["PUTRAJAYA"]}
+];
+const stateName = c => (STATES.find(s=>s.code===c)||{}).name || c || "–";
+function stateOf(text){
+  const t = String(text||"").toUpperCase();
+  const s = STATES.find(s=>s.alias.some(a=>t.includes(a)));
+  return s ? s.code : null;
+}
+function statesIn(text){
+  const t = String(text||"").toUpperCase();
+  return STATES.filter(s=>s.alias.some(a=>t.includes(a))).map(s=>s.code);
+}
+
+const PHASES = {
+  flood:   {label:"Flood",     bm:"Banjir",     desc:"A river near a facility is at danger level, or a road on your route is closed. Hold or reroute collection."},
+  preflood:{label:"Pre-flood", bm:"Pra-banjir", desc:"A river near a facility is at alert or warning level. Flooding may start within hours – bring collection forward."},
+  warning: {label:"Warning",   bm:"Amaran",     desc:"MET Malaysia has issued a rain warning for a state you monitor. Flooding is possible in the next 1–3 days."},
+  recovery:{label:"Recovery",  bm:"Pemulihan",  desc:"Water is dropping or a road has reopened. Check the route and clear the backlog before returning to the normal schedule."}
+};
+const ORDER = ["flood","preflood","warning","recovery"];
+const RANK = {flood:4, preflood:3, warning:2, recovery:1, none:0};
+
+const ACTIONS = {
+  warning:{
+    cenviro:["Confirm alternative routes for at-risk sites and the route to Kualiti Alam","Brief drivers; check vehicles, fuel and PPE","Plan advance collection for sites in low-lying areas","Notify customers in the affected states"],
+    customer:["Check storage space for 2–3 days of waste","Stock bins, bags and sharps containers","Name one contact person for flood updates"],
+    kasb:["Inform KASB of possible schedule changes","Confirm receiving hours and any extended hours"]},
+  preflood:{
+    cenviro:["Bring forward collection at sites near the rising river","Put a standby vehicle and crew on the alternative route","Check JKR eBencana and driver reports before each dispatch","Update customers twice a day"],
+    customer:["Have waste ready at the collection point earlier than usual","Move stored waste above the expected water level","Keep the collection log up to date"],
+    kasb:["Expect early or extra deliveries","Share the revised delivery plan"]},
+  flood:{
+    cenviro:["Do not drive through floodwater – hold or reroute","Use only roads JKR lists as open to heavy vehicles","Record missed collections; inform customer and management","Follow the SC accident and incident procedure for any incident"],
+    customer:["Hold waste in secured, locked storage above water level","Keep waste segregated and containers closed","Record the quantity held each day"],
+    kasb:["Inform KASB of delayed deliveries and expected backlog","Agree on receiving priority when roads reopen"]},
+  recovery:{
+    cenviro:["Inspect the route before resuming – road damage, debris, soft shoulders","Schedule catch-up collection, largest backlog first","Clean and disinfect vehicles exposed to floodwater","Close the incident report and record lessons learned"],
+    customer:["Report backlog quantity and any wet or damaged containers","Repack damaged containers before collection"],
+    kasb:["Share backlog volume and the catch-up delivery plan","Confirm capacity for the surge"]}
+};
+
+/* ---------- Storage (browser only) ---------- */
+const LS = {
+  get(k,d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+const DEFAULTS = {states:["MY-10","MY-14","MY-16","MY-05"], radius:10, ka:{lat:2.6670, lon:101.9930}};
+let settings = Object.assign({}, DEFAULTS, LS.get("fw.settings", {}));
+let mine = new Set(LS.get("fw.mine", []));
+let roads = LS.get("fw.roads", []);
+
+const state = {warnings:[], stations:[], facilities:[], liveW:false, liveS:false, liveF:false, phase:"flood", msgs:[], at:null};
+
+/* ---------- Helpers ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = v => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+function km(a,b,c,d){
+  const R=6371, r=Math.PI/180, x=(c-a)*r, y=(d-b)*r;
+  const h=Math.sin(x/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function fmtTime(t){
+  if(!t) return "–";
+  const d = new Date(String(t).replace(" ","T"));
+  if(isNaN(d)) return esc(t);
+  return d.toLocaleString("en-MY",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});
+}
+async function getJSON(url, opts){
+  const ctl = new AbortController(); const tm = setTimeout(()=>ctl.abort(), 25000);
+  try{
+    const r = await fetch(url, Object.assign({signal:ctl.signal}, opts||{}));
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    return await r.json();
+  } finally { clearTimeout(tm); }
+}
+const rowsOf = j => Array.isArray(j) ? j : (j && Array.isArray(j.data) ? j.data : []);
+
+/* ---------- Weather warnings (MET Malaysia) ---------- */
+function normWarning(r){
+  const wi = r.warning_issue || {};
+  const title = wi.title_en || r.heading_en || wi.title_bm || r.heading_bm || "Weather warning";
+  const text = [r.heading_en, r.text_en || r.text_bm, r.instruction_en].filter(Boolean).join(" ");
+  return {title, text, issued: wi.issued || r.issued, from: r.valid_from, to: r.valid_to,
+          states: statesIn(title+" "+text+" "+(r.text_bm||""))};
+}
+async function loadWarnings(){
+  const j = await getJSON("https://api.data.gov.my/weather/warning?limit=100");
+  const now = Date.now();
+  return rowsOf(j).map(normWarning).filter(w=>{
+    const t = w.to ? Date.parse(String(w.to).replace(" ","T")) : NaN;
+    return isNaN(t) || t >= now;
+  });
+}
+
+/* ---------- River stations (JPS) ---------- */
+const IND = {NORMAL:0, ALERT:1, WASPADA:1, WARNING:2, AMARAN:2, DANGER:3, BAHAYA:3};
+const INDNAME = ["Normal","Alert","Warning","Danger"];
+function normStation(r, i){
+  const lvl = num(r.water_level_current ?? r.water_level ?? r.level);
+  const th = {
+    alert: num(r.water_level_alert_level ?? r.alert_level),
+    warning: num(r.water_level_warning_level ?? r.warning_level),
+    danger: num(r.water_level_danger_level ?? r.danger_level)
+  };
+  let ind = IND[String(r.water_level_indicator ?? r.water_level_status ?? r.status ?? "").toUpperCase().trim()];
+  if(ind==null && lvl!=null){
+    ind = (th.danger!=null && lvl>=th.danger)?3 : (th.warning!=null && lvl>=th.warning)?2 : (th.alert!=null && lvl>=th.alert)?1 : 0;
+  }
+  return {
+    id: String(r.station_id ?? r.id ?? ("s"+i)),
+    name: r.station_name ?? r.name ?? "River station",
+    district: r.district ?? "", state: stateOf(r.state) ,
+    lat: num(r.latitude ?? r.lat), lon: num(r.longitude ?? r.lon ?? r.lng),
+    lvl, th, ind: ind ?? 0, trend: num(r.water_level_increment), at: r.last_updated ?? r.datetime ?? r.date
+  };
+}
+async function loadStations(){
+  const j = await getJSON("https://api.data.gov.my/flood-warning?limit=3000");
+  return rowsOf(j).map(normStation).filter(s=>s.state && settings.states.includes(s.state));
+}
+function applyHistory(stations){
+  const hist = LS.get("fw.hist", {}); const now = Date.now(); const H72 = 72*3600*1000;
+  stations.forEach(s=>{
+    const h = hist[s.id];
+    const recentPeak = h && (now - h.at) < H72 ? h.peak : 0;
+    if(s.ind >= 2){ hist[s.id] = {peak: Math.max(s.ind, recentPeak), at: now}; }
+    s.recovering = s.recovering || (s.ind < 2 && recentPeak >= 2);
+    s.phase = s.ind===3 ? "flood" : (s.recovering ? "recovery" : (s.ind>=1 ? "preflood" : "none"));
+  });
+  Object.keys(hist).forEach(k=>{ if(now - hist[k].at > H72) delete hist[k]; });
+  LS.set("fw.hist", hist);
+}
+
+/* ---------- Facilities (OpenStreetMap) ---------- */
+function kindOf(t, name){
+  const n = name.toLowerCase();
+  if(t.healthcare==="dialysis" || /dialisis|dialysis/.test(n)) return "Dialysis";
+  if(t.amenity==="hospital" || t.healthcare==="hospital" || /hospital|institut/.test(n)) return "Hospital";
+  if(t.amenity==="dentist" || t.healthcare==="dentist" || /pergigian|dental/.test(n)) return "Dental";
+  return "Clinic";
+}
+async function fetchFacilities(onProgress){
+  const out = [];
+  for(const code of settings.states){
+    onProgress && onProgress("Loading facilities for "+stateName(code)+"…");
+    const q = '[out:json][timeout:90];area["ISO3166-2"="'+code+'"]->.a;(' +
+      'nwr["amenity"~"^(hospital|clinic|doctors|dentist)$"](area.a);' +
+      'nwr["healthcare"~"^(hospital|clinic|dialysis|dentist|centre)$"](area.a););out center tags;';
+    const j = await getJSON("https://overpass-api.de/api/interpreter",
+      {method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:"data="+encodeURIComponent(q)});
+    (j.elements||[]).forEach(el=>{
+      const t = el.tags||{}; const name = t.name || t["name:en"] || t["name:ms"];
+      const lat = el.lat ?? (el.center&&el.center.lat), lon = el.lon ?? (el.center&&el.center.lon);
+      if(!name || lat==null) return;
+      out.push({id: el.type[0]+el.id, name, kind: kindOf(t,name), state: code, lat, lon});
+    });
+  }
+  const seen = new Set();
+  return out.filter(f=>{ const k = f.name.toLowerCase()+"|"+f.lat.toFixed(3); if(seen.has(k)) return false; seen.add(k); return true; });
+}
+
+/* ---------- Demo data (used when live data cannot load) ---------- */
+function demo(){
+  const now = Date.now(), h = 3600e3;
+  const iso = t => new Date(t).toISOString();
+  return {
+    warnings:[{title:"Continuous rain warning (alert level) – demo", issued: iso(now-6*h), from: iso(now), to: iso(now+48*h),
+      text:"Demo: continuous rain expected over Selangor, Kuala Lumpur and Negeri Sembilan for the next two days.", states:["MY-10","MY-14","MY-05"]}],
+    stations:[
+      {id:"d1",name:"Demo station – Klang river, city centre",district:"Kuala Lumpur",state:"MY-14",lat:3.1400,lon:101.6950,lvl:32.1,th:{alert:31.5,warning:32.0,danger:33.0},ind:2,trend:0.12,at:iso(now-20*60e3)},
+      {id:"d2",name:"Demo station – Klang river, lower basin",district:"Klang",state:"MY-10",lat:3.0200,lon:101.5000,lvl:5.4,th:{alert:4.2,warning:4.8,danger:5.2},ind:3,trend:0.08,at:iso(now-15*60e3)},
+      {id:"d3",name:"Demo station – Linggi river",district:"Seremban",state:"MY-05",lat:2.7200,lon:101.9400,lvl:18.6,th:{alert:18.5,warning:19.2,danger:20.0},ind:1,trend:0.05,at:iso(now-30*60e3)},
+      {id:"d4",name:"Demo station – Langat river",district:"Hulu Langat",state:"MY-10",lat:2.9950,lon:101.7850,lvl:21.0,th:{alert:21.5,warning:22.3,danger:23.0},ind:0,trend:-0.15,at:iso(now-25*60e3),recovering:true}
+    ],
+    facilities:[
+      {id:"f1",name:"Hospital Kuala Lumpur",kind:"Hospital",state:"MY-14",lat:3.1716,lon:101.7020},
+      {id:"f2",name:"Institut Jantung Negara",kind:"Hospital",state:"MY-14",lat:3.1700,lon:101.7090},
+      {id:"f3",name:"Institut Kanser Negara",kind:"Hospital",state:"MY-16",lat:2.9300,lon:101.6740},
+      {id:"f4",name:"Hospital Tengku Ampuan Rahimah, Klang",kind:"Hospital",state:"MY-10",lat:3.0200,lon:101.4410},
+      {id:"f5",name:"Hospital Shah Alam",kind:"Hospital",state:"MY-10",lat:3.0710,lon:101.4910},
+      {id:"f6",name:"Hospital Kajang",kind:"Hospital",state:"MY-10",lat:2.9930,lon:101.7900},
+      {id:"f7",name:"Hospital Tuanku Ja’afar, Seremban",kind:"Hospital",state:"MY-05",lat:2.7150,lon:101.9440},
+      {id:"f8",name:"Pusat Dialisis (demo), Klang",kind:"Dialysis",state:"MY-10",lat:3.0350,lon:101.5100}
+    ]
+  };
+}
+
+/* ---------- Assessment ---------- */
+function kaSite(){
+  return {id:"ka", name:"Kualiti Alam (disposal destination)", kind:"Destination", state:"MY-05", lat:settings.ka.lat, lon:settings.ka.lon, pinned:true};
+}
+function assess(){
+  const R = settings.radius;
+  const warnStates = new Set(state.warnings.flatMap(w=>w.states));
+  const geo = state.stations.filter(s=>s.lat!=null && s.lon!=null);
+  const facs = [kaSite()].concat(state.facilities.filter(f=>settings.states.includes(f.state)));
+  facs.forEach(f=>{
+    let best = null, nearest = null;
+    geo.forEach(s=>{
+      const d = km(f.lat,f.lon,s.lat,s.lon);
+      if(!nearest || d < nearest.d) nearest = {s, d};
+      if(d <= R && s.phase!=="none" && (!best || RANK[s.phase] > RANK[best.s.phase])) best = {s, d};
+    });
+    let phase = best ? best.s.phase : "none";
+    if(warnStates.has(f.state) && RANK.warning > RANK[phase]) phase = "warning";
+    f.phase = phase; f.nearest = nearest; f.mine = mine.has(f.id) || !!f.pinned;
+  });
+  state.assessed = facs;
+  geo.forEach(s=>{
+    s.near = facs.filter(f=>km(f.lat,f.lon,s.lat,s.lon) <= R)
+      .sort((a,b)=>(b.mine-a.mine) || a.name.localeCompare(b.name));
+  });
+}
+function feedFor(phase){
+  const items = [];
+  const facs = state.assessed || [];
+  if(phase==="warning"){
+    state.warnings.forEach(w=>{
+      const inStates = facs.filter(f=>w.states.includes(f.state));
+      items.push({type:"weather", w, near: inStates, score: inStates.filter(f=>f.mine).length*1000 + inStates.length});
+    });
+  } else {
+    state.stations.filter(s=>s.phase===phase).forEach(s=>{
+      const near = s.near || [];
+      items.push({type:"station", s, near, score: near.filter(f=>f.mine).length*1000 + near.length + s.ind});
+    });
+    const rs = phase==="flood" ? ["closed_all","closed_light"] : phase==="recovery" ? ["caution","reopened"] : [];
+    roads.filter(r=>rs.includes(r.status)).forEach(r=>items.push({type:"road", r, near:[], score: 5000}));
+  }
+  return items.sort((a,b)=>b.score-a.score);
+}
+
+/* ---------- Rendering ---------- */
+function renderGauge(){
+  const counts = {}, sites = {};
+  ORDER.forEach(p=>{ counts[p] = feedFor(p).length; sites[p] = (state.assessed||[]).filter(f=>f.phase===p).length; });
+  $("gauge").innerHTML = ORDER.map(p=>{
+    const P = PHASES[p];
+    return '<button class="seg phase-'+p+(p==="recovery"?" gap":"")+'" data-phase="'+p+'" aria-pressed="'+(state.phase===p)+'">'+
+      '<span class="nm">'+P.label+'</span><span class="ct">'+counts[p]+'</span><span class="bm">'+P.bm+'</span>'+
+      '<span class="st">'+sites[p]+' facilit'+(sites[p]===1?"y":"ies")+'</span></button>';
+  }).join("");
+  $("gauge").querySelectorAll(".seg").forEach(b=>b.onclick=()=>{ state.phase=b.dataset.phase; renderNotify(); });
+}
+function nearChips(near){
+  if(!near.length) return '<p class="note">No facilities within '+settings.radius+' km.</p>';
+  const show = near.slice(0,8);
+  return '<div class="chips">'+show.map(f=>'<span class="chip'+(f.mine?" mine":"")+'">'+(f.mine?"★ ":"")+esc(f.name)+'</span>').join("")+
+    (near.length>8?'<span class="chip">+'+(near.length-8)+' more</span>':"")+'</div>';
+}
+function renderItem(it){
+  if(it.type==="weather"){
+    const w = it.w, mineN = it.near.filter(f=>f.mine).length;
+    return '<article class="item"><h4>'+esc(w.title)+'</h4>'+
+      '<div class="meta">Issued '+fmtTime(w.issued)+' · valid '+fmtTime(w.from)+' to '+fmtTime(w.to)+'</div>'+
+      (w.states.length?'<div class="chips">'+w.states.map(c=>'<span class="chip">'+esc(stateName(c))+'</span>').join("")+'</div>':'<p class="note">No monitored state named in the warning text – read the details.</p>')+
+      '<p>'+it.near.length+' facilities in these states'+(mineN?', including <b>'+mineN+' of your sites</b>':'')+'.</p>'+
+      (w.text?'<details><summary>Warning details</summary><p>'+esc(w.text)+'</p></details>':'')+'</article>';
+  }
+  if(it.type==="station"){
+    const s = it.s, th = s.th||{};
+    const tr = s.trend==null ? "" : (s.trend>0?"Rising ▲ ":s.trend<0?"Falling ▼ ":"Steady ")+(s.trend!==0?Math.abs(s.trend).toFixed(2)+" m":"");
+    return '<article class="item"><h4>'+esc(s.name)+'</h4>'+
+      '<div class="meta">'+esc(s.district)+(s.district?", ":"")+esc(stateName(s.state))+' · updated '+fmtTime(s.at)+'</div>'+
+      '<div class="lvl"><span>Level <b>'+(s.lvl!=null?s.lvl.toFixed(2)+" m":"–")+'</b> ('+INDNAME[s.ind]+')</span>'+
+      (th.warning!=null?'<span>Warning '+th.warning.toFixed(2)+' m</span>':'')+(th.danger!=null?'<span>Danger '+th.danger.toFixed(2)+' m</span>':'')+
+      (tr?'<span>'+tr+'</span>':'')+(s.recovering?'<span>Dropped from warning/danger in last 72 h</span>':'')+'</div>'+
+      nearChips(it.near)+'</article>';
+  }
+  const r = it.r, lab = {closed_all:"Closed to all vehicles",closed_light:"Closed to light vehicles – heavy vehicles can pass",caution:"Open with caution",reopened:"Reopened"}[r.status];
+  return '<article class="item"><h4>'+esc(r.name)+'</h4><div class="meta">'+esc(r.district)+(r.district?", ":"")+esc(stateName(r.state))+' · '+esc(r.source)+' · logged '+fmtTime(r.at)+'</div>'+
+    '<p><b>'+lab+'</b>'+(r.note?' – '+esc(r.note):'')+'</p></article>';
+}
+function renderNotify(){
+  renderGauge();
+  const p = state.phase, P = PHASES[p], A = ACTIONS[p];
+  $("phasePanel").className = "phase-"+p;
+  $("phaseHead").innerHTML = '<h2>'+P.label+' <span style="font-weight:400;color:var(--muted);font-size:1rem">'+P.bm+'</span></h2><p>'+P.desc+'</p>';
+  const col = (t,l)=>'<div><h3>'+t+'</h3><ul>'+l.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul></div>';
+  $("actions").innerHTML = col("Cenviro collection team",A.cenviro)+col("Customer (hospital / clinic)",A.customer)+col("KASB (Kualiti Alam)",A.kasb);
+  const items = feedFor(p);
+  $("feed").innerHTML = items.length ? items.map(renderItem).join("") :
+    '<div class="empty">Nothing in '+P.label.toLowerCase()+' for the states you monitor right now.</div>';
+}
+function renderFacilities(){
+  const q = $("facSearch").value.trim().toLowerCase(), k = $("facKind").value, ph = $("facPhase").value, onlyMine = $("facMine").checked;
+  const list = (state.assessed||[]).filter(f=>(!q||f.name.toLowerCase().includes(q)) && (!k||f.kind===k) && (!ph||f.phase===ph) && (!onlyMine||f.mine))
+    .sort((a,b)=>RANK[b.phase]-RANK[a.phase] || (b.mine-a.mine) || a.name.localeCompare(b.name));
+  const shown = list.slice(0,400);
+  $("facCount").textContent = list.length+" facilities"+(list.length>400?" (showing first 400 – search to narrow)":"")+". Data: "+(state.liveF?"OpenStreetMap":"demo list")+".";
+  $("facBody").innerHTML = shown.map(f=>{
+    const tag = f.phase==="none" ? '<span class="tag none">Normal</span>' : '<span class="tag phase-'+f.phase+'">'+PHASES[f.phase].label+'</span>';
+    const n = f.nearest ? esc(f.nearest.s.name)+' <span class="note">('+f.nearest.d.toFixed(1)+' km)</span>' : '<span class="note">–</span>';
+    const star = f.pinned ? '<span title="Always monitored">★</span>' :
+      '<button class="star" data-id="'+esc(f.id)+'" aria-pressed="'+f.mine+'" aria-label="Mark as my site">'+(f.mine?"★":"☆")+'</button>';
+    return '<tr><td>'+star+'</td><td>'+esc(f.name)+'</td><td>'+esc(f.kind)+'</td><td>'+esc(stateName(f.state))+'</td><td>'+tag+'</td><td>'+n+'</td></tr>';
+  }).join("") || '<tr><td colspan="6" class="note">No facilities match. Clear the filters or add states in Settings.</td></tr>';
+  $("facBody").querySelectorAll(".star").forEach(b=>b.onclick=()=>{
+    const id = b.dataset.id; mine.has(id) ? mine.delete(id) : mine.add(id); LS.set("fw.mine",[...mine]);
+    assess(); renderFacilities(); renderNotify();
+  });
+}
+function renderRoads(){
+  $("rdList").innerHTML = roads.length ? roads.slice().reverse().map(r=>{
+    const ph = ["closed_all","closed_light"].includes(r.status) ? "flood" : "recovery";
+    return '<div class="phase-'+ph+'">'+renderItem({type:"road", r}).replace('</article>','<button class="btn ghost" data-del="'+esc(r.id)+'">Remove</button></article>')+'</div>';
+  }).join("") : '<div class="empty">No road updates logged. Add one when JKR, LLM, police or a driver reports a closure.</div>';
+  $("rdList").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
+    roads = roads.filter(r=>r.id!==b.dataset.del); LS.set("fw.roads",roads); renderRoads(); renderNotify();
+  });
+}
+function renderAll(){
+  assess(); renderNotify(); renderFacilities(); renderRoads();
+  const live = state.liveW && state.liveS;
+  const pill = $("dataPill");
+  pill.textContent = live ? "Live data" : (state.liveW||state.liveS ? "Partly live" : "Demo data");
+  pill.className = "pill "+(live?"live":"demo");
+  $("updated").textContent = state.at ? "Updated "+state.at.toLocaleTimeString("en-MY",{hour:"numeric",minute:"2-digit"}) : "";
+  const b = $("banner");
+  if(state.msgs.length){ b.hidden = false; b.innerHTML = state.msgs.map(esc).join("<br>"); } else b.hidden = true;
+}
+
+/* ---------- Loading ---------- */
+async function loadAll(forceFacilities){
+  const btn = $("refreshBtn"); btn.disabled = true; btn.textContent = "Refreshing…";
+  state.msgs = []; const D = demo();
+  const [w, s] = await Promise.allSettled([loadWarnings(), loadStations()]);
+  if(w.status==="fulfilled"){ state.warnings = w.value; state.liveW = true; }
+  else { state.warnings = D.warnings; state.liveW = false; state.msgs.push("Weather warnings could not load ("+w.reason.message+"). Showing demo warnings."); }
+  if(s.status==="fulfilled"){ state.stations = s.value; state.liveS = true; }
+  else { state.stations = D.stations; state.liveS = false; state.msgs.push("River levels could not load ("+s.reason.message+"). Showing demo stations."); }
+  applyHistory(state.stations);
+
+  const cache = LS.get("fw.fac", null);
+  const sameStates = cache && cache.states && cache.states.slice().sort().join() === settings.states.slice().sort().join();
+  if(!forceFacilities && sameStates && cache.list && cache.list.length){
+    state.facilities = cache.list; state.liveF = true;
+  } else {
+    try{
+      state.facilities = await fetchFacilities(m=>{ $("updated").textContent = m; });
+      state.liveF = true; LS.set("fw.fac", {at:Date.now(), states:settings.states, list:state.facilities});
+    }catch(e){
+      state.facilities = cache && cache.list ? cache.list : D.facilities; state.liveF = !!(cache && cache.list);
+      state.msgs.push("Facilities could not load from OpenStreetMap ("+e.message+"). "+(state.liveF?"Using the last saved list.":"Showing a demo list."));
+    }
+  }
+  if(!state.liveS && state.facilities.length && state.liveF){ /* keep demo stations meaningful */ }
+  state.at = new Date();
+  btn.disabled = false; btn.textContent = "Refresh now";
+  if(!state.assessed){ state.phase = "flood"; }
+  renderAll();
+  const firstActive = ORDER.find(p=>feedFor(p).length);
+  if(firstActive && !feedFor(state.phase).length){ state.phase = firstActive; renderNotify(); }
+}
+
+/* ---------- Wiring ---------- */
+document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav.tabs button").forEach(x=>x.setAttribute("aria-selected", x===b));
+  document.querySelectorAll(".tab").forEach(t=>t.hidden = t.id !== "tab-"+b.dataset.tab);
+});
+["facSearch","facKind","facPhase","facMine"].forEach(id=>$(id).addEventListener("input", renderFacilities));
+$("refreshBtn").onclick = ()=>loadAll(false);
+
+$("rdState").innerHTML = STATES.map(s=>'<option value="'+s.code+'">'+s.name+'</option>').join("");
+$("rdAdd").onclick = ()=>{
+  const name = $("rdName").value.trim(); if(!name){ $("rdName").focus(); return; }
+  roads.push({id:"r"+Date.now(), name, state:$("rdState").value, district:$("rdDistrict").value.trim(),
+    status:$("rdStatus").value, source:$("rdSource").value, note:$("rdNote").value.trim(), at:new Date().toISOString()});
+  LS.set("fw.roads", roads); $("rdName").value = $("rdDistrict").value = $("rdNote").value = "";
+  renderRoads(); renderNotify();
+};
+
+function fillSettings(){
+  $("stateChecks").innerHTML = STATES.map(s=>'<label><input type="checkbox" value="'+s.code+'"'+(settings.states.includes(s.code)?" checked":"")+'> '+s.name+'</label>').join("");
+  $("setRadius").value = settings.radius; $("setKaLat").value = settings.ka.lat; $("setKaLon").value = settings.ka.lon;
+}
+fillSettings();
+$("setSave").onclick = ()=>{
+  const st = [...$("stateChecks").querySelectorAll("input:checked")].map(i=>i.value);
+  settings = {states: st.length?st:DEFAULTS.states, radius: Math.max(1, num($("setRadius").value)||10),
+    ka:{lat: num($("setKaLat").value) ?? DEFAULTS.ka.lat, lon: num($("setKaLon").value) ?? DEFAULTS.ka.lon}};
+  LS.set("fw.settings", settings); fillSettings(); loadAll(false);
+};
+$("setFac").onclick = ()=>loadAll(true);
+$("setClear").onclick = ()=>{
+  if(!confirm("Clear saved facilities, road updates, your sites and settings from this browser?")) return;
+  ["fw.settings","fw.mine","fw.roads","fw.fac","fw.hist"].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  settings = Object.assign({}, DEFAULTS); mine = new Set(); roads = []; fillSettings(); loadAll(true);
+};
+
+loadAll(false);
+setInterval(()=>loadAll(false), 30*60*1000);
+})();
+</script>
+</body>
+</html>
