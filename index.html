@@ -190,7 +190,8 @@ footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;col
   </section>
 
   <section id="tab-roads" class="tab" hidden>
-    <p class="note">JKR doesn’t publish road closures as a data feed yet, so log them here from <a href="https://bencanaalam.jkr.gov.my" target="_blank" rel="noopener">JKR eBencana</a>, LLM, police or driver reports. Closed roads appear under Flood; reopened roads under Recovery.</p>
+    <p class="note" id="jkrStatus">Checking the automatic JKR copy…</p>
+    <p class="note">Road closures on <a href="https://bencanaalam.jkr.gov.my" target="_blank" rel="noopener">JKR eBencana</a> are copied here automatically every 30 minutes and appear under Flood, marked “auto”. Use the form for anything else – LLM, police or driver reports, or a JKR update the copy missed. Closed roads appear under Flood; reopened roads under Recovery.</p>
     <div class="form">
       <label>Road / route<input id="rdName" placeholder="e.g. FT001 Jalan Seremban–Tampin"></label>
       <label>State<select id="rdState"></select></label>
@@ -307,7 +308,7 @@ let settings = Object.assign({}, DEFAULTS, LS.get("fw.settings", {}));
 let mine = new Set(LS.get("fw.mine", []));
 let roads = LS.get("fw.roads", []);
 
-const state = {warnings:[], stations:[], facilities:[], liveW:false, liveS:false, liveF:false, phase:"flood", msgs:[], at:null};
+const state = {warnings:[], stations:[], facilities:[], autoRoads:[], jkr:null, liveW:false, liveS:false, liveF:false, phase:"flood", msgs:[], at:null};
 
 /* ---------- Helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -388,6 +389,12 @@ function applyHistory(stations){
   });
   Object.keys(hist).forEach(k=>{ if(now - hist[k].at > H72) delete hist[k]; });
   LS.set("fw.hist", hist);
+}
+
+/* ---------- JKR road closures (copied by GitHub Actions) ---------- */
+async function loadJkr(){
+  const j = await getJSON("data/jkr_roads.json?ts="+Date.now(), {cache:"no-store"});
+  return j && typeof j === "object" ? j : {items:[]};
 }
 
 /* ---------- Facilities (OpenStreetMap) ---------- */
@@ -484,7 +491,7 @@ function feedFor(phase){
       items.push({type:"station", s, near, score: near.filter(f=>f.mine).length*1000 + near.length + s.ind});
     });
     const rs = phase==="flood" ? ["closed_all","closed_light"] : phase==="recovery" ? ["caution","reopened"] : [];
-    roads.filter(r=>rs.includes(r.status)).forEach(r=>items.push({type:"road", r, near:[], score: 5000}));
+    roads.concat(state.autoRoads).filter(r=>rs.includes(r.status)).forEach(r=>items.push({type:"road", r, near:[], score: r.auto?4000:5000}));
   }
   return items.sort((a,b)=>b.score-a.score);
 }
@@ -527,7 +534,7 @@ function renderItem(it){
       nearChips(it.near)+'</article>';
   }
   const r = it.r, lab = {closed_all:"Closed to all vehicles",closed_light:"Closed to light vehicles – heavy vehicles can pass",caution:"Open with caution",reopened:"Reopened"}[r.status];
-  return '<article class="item"><h4>'+esc(r.name)+'</h4><div class="meta">'+esc(r.district)+(r.district?", ":"")+esc(stateName(r.state))+' · '+esc(r.source)+' · logged '+fmtTime(r.at)+'</div>'+
+  return '<article class="item"><h4>'+esc(r.name)+(r.auto?' <span class="tag none">auto</span>':'')+'</h4><div class="meta">'+esc(r.district)+(r.district?", ":"")+esc(r.state?stateName(r.state):"State not stated")+' · '+esc(r.source)+' · '+(r.auto?'copied ':'logged ')+fmtTime(r.at)+'</div>'+
     '<p><b>'+lab+'</b>'+(r.note?' – '+esc(r.note):'')+'</p></article>';
 }
 function renderNotify(){
@@ -559,7 +566,16 @@ function renderFacilities(){
     assess(); renderFacilities(); renderNotify();
   });
 }
+function renderJkrStatus(){
+  const el = $("jkrStatus"), j = state.jkr;
+  if(!j){ el.textContent = "Checking the automatic JKR copy…"; return; }
+  if(j.error){ el.textContent = "Automatic JKR copy not available yet ("+j.error+"). It starts after the first scheduled run on GitHub."; return; }
+  if(!j.ok){ el.textContent = "Last automatic check "+fmtTime(j.fetched_at)+": JKR eBencana could not be read. Use the manual log below."; return; }
+  const all = (j.items||[]).length;
+  el.textContent = "Last automatic check "+fmtTime(j.fetched_at)+": "+all+" road update"+(all===1?"":"s")+" on JKR eBencana, "+state.autoRoads.length+" in the states you monitor.";
+}
 function renderRoads(){
+  renderJkrStatus();
   $("rdList").innerHTML = roads.length ? roads.slice().reverse().map(r=>{
     const ph = ["closed_all","closed_light"].includes(r.status) ? "flood" : "recovery";
     return '<div class="phase-'+ph+'">'+renderItem({type:"road", r}).replace('</article>','<button class="btn ghost" data-del="'+esc(r.id)+'">Remove</button></article>')+'</div>';
@@ -583,7 +599,12 @@ function renderAll(){
 async function loadAll(forceFacilities){
   const btn = $("refreshBtn"); btn.disabled = true; btn.textContent = "Refreshing…";
   state.msgs = []; const D = demo();
-  const [w, s] = await Promise.allSettled([loadWarnings(), loadStations()]);
+  const [w, s, jk] = await Promise.allSettled([loadWarnings(), loadStations(), loadJkr()]);
+  if(jk.status==="fulfilled"){
+    state.jkr = jk.value;
+    state.autoRoads = (jk.value.items||[]).filter(r=>!r.state || settings.states.includes(r.state))
+      .map(r=>Object.assign({}, r, {auto:true}));
+  } else { state.jkr = {error: jk.reason.message}; state.autoRoads = []; }
   if(w.status==="fulfilled"){ state.warnings = w.value; state.liveW = true; }
   else { state.warnings = D.warnings; state.liveW = false; state.msgs.push("Weather warnings could not load ("+w.reason.message+"). Showing demo warnings."); }
   if(s.status==="fulfilled"){ state.stations = s.value; state.liveS = true; }
