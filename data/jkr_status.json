@@ -1,0 +1,18 @@
+{
+ "fetched_at": "2026-11-10T04:29:23+00:00",
+ "source": null,
+ "http_status": null,
+ "ok": false,
+ "count": 0,
+ "errors": [
+  "https://bencana.jkr.gov.my/ (verified TLS): <urlopen error timed out>",
+  "https://bencana.jkr.gov.my/ (unverified TLS): <urlopen error timed out>",
+  "https://bencanaalam.jkr.gov.my/ (verified TLS): <urlopen error timed out>",
+  "https://bencanaalam.jkr.gov.my/ (unverified TLS): <urlopen error timed out>",
+  "http://bencanaalam.jkr.gov.my/ (verified TLS): <urlopen error timed out>",
+  "http://bencanaalam.jkr.gov.my/ (unverified TLS): <urlopen error timed out>"
+ ],
+ "hints": [],
+ "rows_seen": 0,
+ "lines_seen": 0
+}
