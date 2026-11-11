@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..110,400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{
   color-scheme: light;
@@ -123,6 +125,16 @@ th{font-weight:700;background:var(--paper);position:sticky;top:0}
 .src dd{margin:2px 0 10px;font-size:.92rem;color:var(--muted)}
 footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;color:var(--muted)}
 
+/* Disposal routes */
+#routeMap{height:420px;border:1px solid var(--line);border-radius:6px;margin:12px 0 20px;background:var(--surface)}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:8px 0;font-size:.88rem}
+.chain .hop{padding:2px 8px;border-radius:4px;border:1px solid var(--line);background:var(--paper)}
+.chain .hop.hw{font-weight:700}
+.chain .hop[class*="phase-"]{background:var(--cb);border-color:var(--c);color:var(--ink)}
+.chain .arr{color:var(--muted)}
+.decision{font-weight:700;margin:6px 0}
+.rtab{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+h3.sec{margin:22px 0 8px;font-size:1.15rem}
 @media (max-width:820px){
   .board{grid-template-columns:1fr}
   .gauge{position:static;flex-direction:row;overflow-x:auto;border-left:0;border-top:6px solid var(--ink);background:none}
@@ -154,6 +166,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;col
 <nav class="tabs" role="tablist">
   <button role="tab" data-tab="notify" aria-selected="true">Flood notification</button>
   <button role="tab" data-tab="facilities" aria-selected="false">Facilities</button>
+  <button role="tab" data-tab="routes" aria-selected="false">Disposal routes</button>
   <button role="tab" data-tab="roads" aria-selected="false">Road closures</button>
   <button role="tab" data-tab="settings" aria-selected="false">Settings &amp; sources</button>
 </nav>
@@ -189,6 +202,19 @@ footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;col
     <p class="note">Tap ☆ to mark a facility as your site. Your selection stays in this browser only and is never uploaded.</p>
   </section>
 
+  <section id="tab-routes" class="tab" hidden>
+    <p class="note">Route from each of your sites (☆ in Facilities) to Kualiti Alam, with up to two alternatives. A highway or federal road is flagged when a JPS river station within the route buffer is at alert level or above, or when a closure on that road is logged or copied from JKR. Routes come from OpenStreetMap and are calculated once a week.</p>
+    <div class="rtab"><button class="btn" id="rtRefresh">Recalculate routes</button><span class="note" id="rtStatus"></span></div>
+    <div id="routeMap" role="img" aria-label="Map of disposal routes to Kualiti Alam"></div>
+    <h3 class="sec">Highway &amp; federal road watch</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Road</th><th>Status</th><th>Reason</th><th>Your sites using it</th></tr></thead>
+      <tbody id="corrBody"></tbody>
+    </table></div>
+    <h3 class="sec">Site → route → KASB</h3>
+    <div class="feed" id="rtList"></div>
+  </section>
+
   <section id="tab-roads" class="tab" hidden>
     <p class="note" id="jkrStatus">Checking the automatic JKR copy…</p>
     <p class="note">Road closures on <a href="https://bencanaalam.jkr.gov.my" target="_blank" rel="noopener">JKR eBencana</a> are copied here automatically every 30 minutes and appear under Flood, marked “auto”. Use the form for anything else – LLM, police or driver reports, or a JKR update the copy missed. Closed roads appear under Flood; reopened roads under Recovery.</p>
@@ -213,6 +239,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 28px;font-size:.82rem;col
     <div class="form">
       <div class="full"><strong>States to monitor</strong><div class="statechecks" id="stateChecks"></div></div>
       <label>Radius around each river station (km)<input type="number" id="setRadius" min="1" max="50" step="1"></label>
+      <label>Route buffer – river station distance from road (km)<input type="number" id="setBuffer" min="0.5" max="10" step="0.5"></label>
       <label>Kualiti Alam latitude<input type="number" id="setKaLat" step="0.0001"></label>
       <label>Kualiti Alam longitude<input type="number" id="setKaLon" step="0.0001"></label>
       <p class="note full">The Kualiti Alam pin is approximate. Drop a pin on the exact gate in Google Maps and copy the coordinates here.</p>
@@ -303,7 +330,7 @@ const LS = {
   get(k,d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-const DEFAULTS = {states:["MY-10","MY-14","MY-16","MY-05"], radius:10, ka:{lat:2.6670, lon:101.9930}};
+const DEFAULTS = {states:["MY-10","MY-14","MY-16","MY-05"], radius:10, buffer:2, ka:{lat:2.6670, lon:101.9930}};
 let settings = Object.assign({}, DEFAULTS, LS.get("fw.settings", {}));
 let mine = new Set(LS.get("fw.mine", []));
 let roads = LS.get("fw.roads", []);
@@ -451,6 +478,195 @@ function demo(){
   };
 }
 
+/* ---------- Disposal routes (OSRM on OpenStreetMap) ---------- */
+let routeCache = LS.get("fw.routes", {});
+const WEEK = 7*24*3600*1000;
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+function roadClass(ref, name){
+  const r = String(ref||"").toUpperCase(), n = String(name||"").toLowerCase();
+  if(/(^|;\s*)E\s?\d+/.test(r) || /lebuhraya|expressway|highway/.test(n)) return "hw";
+  if(/(^|;\s*)(FT\s?)?\d{1,4}\b/.test(r) || /persekutuan/.test(n)) return "ft";
+  return "local";
+}
+function codesIn(text){
+  const t = String(text||"").toUpperCase(), out = new Set();
+  (t.match(/\bE\s?\d{1,3}\b/g)||[]).forEach(c=>out.add(c.replace(/\s/g,"")));
+  (t.match(/\bFT\s?\d{1,4}\b/g)||[]).forEach(c=>out.add("FT"+parseInt(c.replace(/\D/g,""),10)));
+  return out;
+}
+function segCodes(ref){
+  const out = new Set();
+  String(ref||"").split(/[;,]/).map(x=>x.trim().toUpperCase()).filter(Boolean).forEach(x=>{
+    if(/^E\s?\d+/.test(x)) out.add(x.replace(/\s/g,""));
+    else if(/^(FT\s?)?\d{1,4}$/.test(x)) out.add("FT"+parseInt(x.replace(/\D/g,""),10));
+  });
+  return out;
+}
+function thin(coords, stepKm){
+  const out = []; let last = null;
+  coords.forEach((c,i)=>{ if(!last || i===coords.length-1 || km(last[1],last[0],c[1],c[0]) >= stepKm){ out.push(c); last = c; } });
+  return out;
+}
+function parseRoute(r){
+  const segs = [];
+  (r.legs||[]).forEach(leg=>(leg.steps||[]).forEach(st=>{
+    const ref = st.ref || "", name = st.name || "", cls = roadClass(ref, name);
+    const key = cls==="local" ? "local" : (ref || name).toUpperCase();
+    const coords = (st.geometry && st.geometry.coordinates) || [];
+    const last = segs[segs.length-1];
+    if(last && last.key===key){ last.dist += st.distance; last.coords = last.coords.concat(coords); }
+    else segs.push({key, ref, name, cls, dist: st.distance, coords: coords.slice()});
+  }));
+  const merged = [];
+  segs.forEach(sg=>{
+    const last = merged[merged.length-1];
+    if(sg.cls==="local" && last && last.cls==="local"){ last.dist += sg.dist; last.coords = last.coords.concat(sg.coords); return; }
+    if(sg.cls!=="local" && sg.dist < 500 && last){ last.dist += sg.dist; last.coords = last.coords.concat(sg.coords); return; }
+    merged.push(sg);
+  });
+  merged.forEach(sg=>{
+    sg.coords = thin(sg.coords, 0.3);
+    const codes = [...segCodes(sg.ref)];
+    sg.codes = codes;
+    sg.label = sg.cls==="local" ? "Local roads" : (sg.name ? sg.name : codes.join("/")) + (codes.length && sg.name ? " ("+codes.join("/")+")" : "");
+  });
+  return {distance: r.distance, duration: r.duration, segs: merged};
+}
+async function routesFor(site){
+  const k = site.lat.toFixed(4)+","+site.lon.toFixed(4)+">"+settings.ka.lat.toFixed(4)+","+settings.ka.lon.toFixed(4);
+  const c = routeCache[site.id];
+  if(c && c.k===k && Date.now()-c.at < WEEK) return c.routes;
+  const url = "https://router.project-osrm.org/route/v1/driving/"+site.lon+","+site.lat+";"+settings.ka.lon+","+settings.ka.lat+
+    "?alternatives=3&overview=false&steps=true&geometries=geojson";
+  const j = await getJSON(url);
+  if(j.code!=="Ok" || !j.routes || !j.routes.length) throw new Error(j.message || j.code || "no route");
+  const routes = j.routes.slice(0,3).map(parseRoute);
+  routeCache[site.id] = {k, at: Date.now(), routes};
+  LS.set("fw.routes", routeCache);
+  await sleep(1100);
+  return routes;
+}
+async function loadRoutes(force){
+  const sites = (state.assessed||[]).filter(f=>f.mine && !f.pinned).slice(0,40);
+  state.routeSites = sites.map(f=>f.id);
+  if(force){ routeCache = {}; LS.set("fw.routes", routeCache); }
+  if(!sites.length){ state.routeMsg = "Star your sites in the Facilities tab to see their routes to Kualiti Alam."; renderRoutes(); return; }
+  let fails = 0;
+  for(let i=0;i<sites.length;i++){
+    $("rtStatus").textContent = "Calculating route "+(i+1)+" of "+sites.length+"…";
+    try{ sites[i].routes = await routesFor(sites[i]); }
+    catch(e){ sites[i].routes = null; sites[i].routeErr = e.message; fails++; }
+  }
+  state.routeMsg = sites.length+" site"+(sites.length===1?"":"s")+" routed"+(fails?" – "+fails+" could not be routed (try again later)":"")+".";
+  assessRoutes(); renderRoutes(); renderNotify();
+}
+function closureList(){ return roads.concat(state.autoRoads||[]).filter(r=>r.status!=="reopened"); }
+function assessRoutes(){
+  const buf = settings.buffer, hot = (state.stations||[]).filter(s=>s.phase && s.phase!=="none" && s.phase!=="recovery" && s.lat!=null);
+  const closures = closureList();
+  const corr = {};
+  (state.assessed||[]).forEach(site=>{
+    if(!site.routes) return;
+    site.routes.forEach((rt, ri)=>{
+      rt.phase = "none";
+      rt.segs.forEach(sg=>{
+        sg.phase = "none"; sg.why = [];
+        hot.forEach(st=>{
+          let d = Infinity;
+          for(const c of sg.coords){ const x = km(st.lat,st.lon,c[1],c[0]); if(x<d) d = x; if(d<=buf) break; }
+          if(d <= buf){
+            if(RANK[st.phase] > RANK[sg.phase]) sg.phase = st.phase;
+            sg.why.push(esc(st.name)+" – "+INDNAME[st.ind]+" ("+d.toFixed(1)+" km)");
+          }
+        });
+        if(sg.cls!=="local"){
+          closures.forEach(r=>{
+            const txt = (r.name||"")+" "+(r.note||"");
+            const rc = codesIn(txt);
+            const hit = sg.codes.some(c=>rc.has(c)) || (sg.name && sg.name.length>5 && txt.toLowerCase().includes(sg.name.toLowerCase()));
+            if(!hit) return;
+            const ph = r.status==="closed_all" ? "flood" : "preflood";
+            if(RANK[ph] > RANK[sg.phase]) sg.phase = ph;
+            sg.why.push(esc(r.name)+" – "+({closed_all:"closed to all vehicles",closed_light:"heavy vehicles only",caution:"open with caution"}[r.status]||r.status)+(r.auto?" (JKR auto)":""));
+          });
+          const ck = sg.key;
+          const e = corr[ck] || (corr[ck] = {label: sg.label, cls: sg.cls, phase:"none", why:new Set(), sites:new Set(), primary:new Set()});
+          if(RANK[sg.phase] > RANK[e.phase]) e.phase = sg.phase;
+          sg.why.forEach(w=>e.why.add(w)); e.sites.add(site.name); if(ri===0) e.primary.add(site.name);
+        }
+        if(RANK[sg.phase] > RANK[rt.phase]) rt.phase = sg.phase;
+      });
+    });
+    const bad = p => p==="flood" || p==="preflood";
+    const [p, ...alts] = site.routes;
+    const okAlt = alts.find(a=>!bad(a.phase));
+    const via = rt => rt.segs.filter(s=>s.cls!=="local").slice(0,3).map(s=>s.label).join(" → ") || "local roads";
+    if(site.phase==="flood"){ site.decision = "Site area at flood level – hold waste on site; confirm access before sending a truck."; site.rphase = "flood"; }
+    else if(!bad(p.phase)){ site.decision = "Disposal route clear via "+via(p)+"."; site.rphase = p.phase; }
+    else if(okAlt){ site.decision = "Main route affected – use the alternative via "+via(okAlt)+"."; site.rphase = p.phase; }
+    else if(site.routes.some(r=>r.phase==="flood")){ site.decision = "All routes to KASB affected – postpone disposal and hold waste securely, even if the site itself is reachable."; site.rphase = "flood"; }
+    else { site.decision = "Routes at risk – deliver to KASB early or prepare to hold waste."; site.rphase = "preflood"; }
+  });
+  state.corridors = Object.values(corr).sort((a,b)=>RANK[b.phase]-RANK[a.phase] || b.sites.size-a.sites.size);
+}
+function chainHTML(site, rt){
+  const hop = (t,cls,ph)=>'<span class="hop'+(cls?" "+cls:"")+(ph&&ph!=="none"?" phase-"+ph:"")+'">'+t+'</span>';
+  const arr = '<span class="arr">→</span>';
+  return '<div class="chain">'+hop(esc(site.name),"",site.phase==="flood"?"flood":"")+
+    rt.segs.map(sg=>arr+hop(esc(sg.label)+(sg.cls!=="local"?' <span class="note">'+(sg.dist/1000).toFixed(0)+' km</span>':""), sg.cls==="local"?"":"hw", sg.phase)).join("")+
+    arr+hop("KASB","hw","")+'</div>';
+}
+function gmapsLink(site){
+  return "https://www.google.com/maps/dir/?api=1&origin="+site.lat+","+site.lon+"&destination="+settings.ka.lat+","+settings.ka.lon+"&travelmode=driving";
+}
+let lmap = null, llayer = null;
+function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#888"; }
+function renderMap(){
+  if(typeof L==="undefined"){ $("routeMap").innerHTML = '<p class="note" style="padding:12px">Map could not load. The route list below still works.</p>'; return; }
+  if($("tab-routes").hidden) return;
+  if(!lmap){
+    lmap = L.map("routeMap",{scrollWheelZoom:false}).setView([settings.ka.lat, settings.ka.lon], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18, attribution:"© OpenStreetMap contributors"}).addTo(lmap);
+  }
+  lmap.invalidateSize();
+  if(llayer) llayer.remove();
+  llayer = L.layerGroup().addTo(lmap);
+  const col = p => p==="flood"?cssVar("--flood"):p==="preflood"?cssVar("--pre"):p==="warning"?cssVar("--warn"):cssVar("--ink");
+  const pts = [[settings.ka.lat, settings.ka.lon]];
+  (state.assessed||[]).filter(f=>f.routes).forEach(site=>{
+    site.routes.forEach((rt,ri)=>rt.segs.forEach(sg=>{
+      if(sg.coords.length<2) return;
+      L.polyline(sg.coords.map(c=>[c[1],c[0]]),{color: sg.phase!=="none"?col(sg.phase):(ri?cssVar("--muted"):cssVar("--ink")), weight: ri?3:5, opacity: ri?.6:.85, dashArray: ri?"6 6":null})
+        .bindTooltip(esc(sg.label)+(sg.why.length?"<br>"+sg.why.join("<br>"):"")).addTo(llayer);
+    }));
+    L.circleMarker([site.lat,site.lon],{radius:6,color:col(site.rphase),fillOpacity:.9}).bindTooltip(esc(site.name)+"<br>"+esc(site.decision||"")).addTo(llayer);
+    pts.push([site.lat,site.lon]);
+  });
+  (state.stations||[]).filter(s=>s.phase && s.phase!=="none" && s.lat!=null).forEach(s=>{
+    L.circleMarker([s.lat,s.lon],{radius:5,color:col(s.phase),weight:2,fillOpacity:.4}).bindTooltip(esc(s.name)+" – "+INDNAME[s.ind]).addTo(llayer);
+  });
+  L.marker([settings.ka.lat, settings.ka.lon]).bindTooltip("Kualiti Alam (KASB)").addTo(llayer);
+  if(pts.length>1) lmap.fitBounds(pts,{padding:[30,30]});
+}
+function renderRoutes(){
+  $("rtStatus").textContent = state.routeMsg || "";
+  const corr = state.corridors || [];
+  $("corrBody").innerHTML = corr.length ? corr.map(c=>{
+    const tag = c.phase==="none" ? '<span class="tag none">Clear</span>' : '<span class="tag phase-'+c.phase+'">'+PHASES[c.phase].label+'</span>';
+    return '<tr><td><b>'+esc(c.label)+'</b><br><span class="note">'+(c.cls==="hw"?"Highway":"Federal road")+'</span></td><td>'+tag+'</td><td>'+([...c.why].join("<br>")||'<span class="note">–</span>')+'</td><td>'+c.sites.size+(c.primary.size<c.sites.size?' <span class="note">('+c.primary.size+' on main route)</span>':'')+'</td></tr>';
+  }).join("") : '<tr><td colspan="4" class="note">No routes yet.</td></tr>';
+  const sites = (state.assessed||[]).filter(f=>f.mine && !f.pinned);
+  $("rtList").innerHTML = sites.length ? sites.sort((a,b)=>RANK[b.rphase||"none"]-RANK[a.rphase||"none"]).map(site=>{
+    if(!site.routes) return '<article class="item"><h4>'+esc(site.name)+'</h4><p class="note">'+(site.routeErr?"Could not calculate a route ("+esc(site.routeErr)+").":"Route not calculated yet.")+'</p></article>';
+    const ph = site.rphase||"none";
+    return '<div class="'+(ph!=="none"?"phase-"+ph:"")+'"><article class="item"'+(ph==="none"?' style="border-left-color:var(--line)"':'')+'><h4>'+esc(site.name)+'</h4>'+
+      '<p class="decision">'+esc(site.decision||"")+'</p>'+
+      site.routes.map((rt,ri)=>'<div class="meta">'+(ri?"Alternative "+ri:"Main route")+' · '+(rt.distance/1000).toFixed(0)+' km · about '+Math.round(rt.duration/60)+' min'+(rt.phase!=="none"?' · <b>'+PHASES[rt.phase].label+'</b>':'')+'</div>'+chainHTML(site, rt)).join("")+
+      '<p><a href="'+gmapsLink(site)+'" target="_blank" rel="noopener">Check live traffic in Google Maps</a></p></article></div>';
+  }).join("") : '<div class="empty">'+esc(state.routeMsg || "Star your sites in the Facilities tab to see their routes to Kualiti Alam.")+'</div>';
+  renderMap();
+}
+
 /* ---------- Assessment ---------- */
 function kaSite(){
   return {id:"ka", name:"Kualiti Alam (disposal destination)", kind:"Destination", state:"MY-05", lat:settings.ka.lat, lon:settings.ka.lon, pinned:true};
@@ -490,6 +706,9 @@ function feedFor(phase){
       const near = s.near || [];
       items.push({type:"station", s, near, score: near.filter(f=>f.mine).length*1000 + near.length + s.ind});
     });
+    if(phase==="flood" || phase==="preflood"){
+      facs.filter(f=>f.routes && f.rphase===phase).forEach(f=>items.push({type:"route", site:f, near:[], score: 6000}));
+    }
     const rs = phase==="flood" ? ["closed_all","closed_light"] : phase==="recovery" ? ["caution","reopened"] : [];
     roads.concat(state.autoRoads).filter(r=>rs.includes(r.status)).forEach(r=>items.push({type:"road", r, near:[], score: r.auto?4000:5000}));
   }
@@ -522,6 +741,12 @@ function renderItem(it){
       (w.states.length?'<div class="chips">'+w.states.map(c=>'<span class="chip">'+esc(stateName(c))+'</span>').join("")+'</div>':'<p class="note">No monitored state named in the warning text – read the details.</p>')+
       '<p>'+it.near.length+' facilities in these states'+(mineN?', including <b>'+mineN+' of your sites</b>':'')+'.</p>'+
       (w.text?'<details><summary>Warning details</summary><p>'+esc(w.text)+'</p></details>':'')+'</article>';
+  }
+  if(it.type==="route"){
+    const f = it.site, p = f.routes[0];
+    return '<article class="item"><h4>Disposal route: '+esc(f.name)+' → KASB</h4>'+
+      '<p class="decision">'+esc(f.decision)+'</p>'+chainHTML(f, p)+
+      '<p><a href="'+gmapsLink(f)+'" target="_blank" rel="noopener">Check live traffic in Google Maps</a></p></article>';
   }
   if(it.type==="station"){
     const s = it.s, th = s.th||{};
@@ -563,7 +788,7 @@ function renderFacilities(){
   }).join("") || '<tr><td colspan="6" class="note">No facilities match. Clear the filters or add states in Settings.</td></tr>';
   $("facBody").querySelectorAll(".star").forEach(b=>b.onclick=()=>{
     const id = b.dataset.id; mine.has(id) ? mine.delete(id) : mine.add(id); LS.set("fw.mine",[...mine]);
-    assess(); renderFacilities(); renderNotify();
+    renderAll();
   });
 }
 function renderJkrStatus(){
@@ -585,7 +810,9 @@ function renderRoads(){
   });
 }
 function renderAll(){
-  assess(); renderNotify(); renderFacilities(); renderRoads();
+  assess();
+  (state.assessed||[]).forEach(f=>{ const c = routeCache[f.id]; if(f.mine && !f.pinned && c) f.routes = c.routes; });
+  assessRoutes(); renderRoutes(); renderNotify(); renderFacilities(); renderRoads();
   const live = state.liveW && state.liveS;
   const pill = $("dataPill");
   pill.textContent = live ? "Live data" : (state.liveW||state.liveS ? "Partly live" : "Demo data");
@@ -631,15 +858,18 @@ async function loadAll(forceFacilities){
   renderAll();
   const firstActive = ORDER.find(p=>feedFor(p).length);
   if(firstActive && !feedFor(state.phase).length){ state.phase = firstActive; renderNotify(); }
+  loadRoutes(false);
 }
 
 /* ---------- Wiring ---------- */
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav.tabs button").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".tab").forEach(t=>t.hidden = t.id !== "tab-"+b.dataset.tab);
+  if(b.dataset.tab==="routes") renderMap();
 });
 ["facSearch","facKind","facPhase","facMine"].forEach(id=>$(id).addEventListener("input", renderFacilities));
 $("refreshBtn").onclick = ()=>loadAll(false);
+$("rtRefresh").onclick = ()=>loadRoutes(true);
 
 $("rdState").innerHTML = STATES.map(s=>'<option value="'+s.code+'">'+s.name+'</option>').join("");
 $("rdAdd").onclick = ()=>{
@@ -652,20 +882,20 @@ $("rdAdd").onclick = ()=>{
 
 function fillSettings(){
   $("stateChecks").innerHTML = STATES.map(s=>'<label><input type="checkbox" value="'+s.code+'"'+(settings.states.includes(s.code)?" checked":"")+'> '+s.name+'</label>').join("");
-  $("setRadius").value = settings.radius; $("setKaLat").value = settings.ka.lat; $("setKaLon").value = settings.ka.lon;
+  $("setRadius").value = settings.radius; $("setBuffer").value = settings.buffer; $("setKaLat").value = settings.ka.lat; $("setKaLon").value = settings.ka.lon;
 }
 fillSettings();
 $("setSave").onclick = ()=>{
   const st = [...$("stateChecks").querySelectorAll("input:checked")].map(i=>i.value);
-  settings = {states: st.length?st:DEFAULTS.states, radius: Math.max(1, num($("setRadius").value)||10),
+  settings = {states: st.length?st:DEFAULTS.states, radius: Math.max(1, num($("setRadius").value)||10), buffer: Math.max(0.5, num($("setBuffer").value)||2),
     ka:{lat: num($("setKaLat").value) ?? DEFAULTS.ka.lat, lon: num($("setKaLon").value) ?? DEFAULTS.ka.lon}};
   LS.set("fw.settings", settings); fillSettings(); loadAll(false);
 };
 $("setFac").onclick = ()=>loadAll(true);
 $("setClear").onclick = ()=>{
   if(!confirm("Clear saved facilities, road updates, your sites and settings from this browser?")) return;
-  ["fw.settings","fw.mine","fw.roads","fw.fac","fw.hist"].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-  settings = Object.assign({}, DEFAULTS); mine = new Set(); roads = []; fillSettings(); loadAll(true);
+  ["fw.settings","fw.mine","fw.roads","fw.fac","fw.hist","fw.routes"].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  settings = Object.assign({}, DEFAULTS); mine = new Set(); roads = []; routeCache = {}; fillSettings(); loadAll(true);
 };
 
 loadAll(false);
